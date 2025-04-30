@@ -1,0 +1,70 @@
+# More info at https://github.com/pi-hole/docker-pi-hole/ and https://docs.pi-hole.net/
+services:
+  cloudflared:
+    container_name: cloudflared-dns # Renamed slightly to avoid clash with tunnel container if running on same host
+    restart: unless-stopped
+    image: cloudflare/cloudflared:latest
+    command: proxy-dns
+    environment:
+      - "TUNNEL_DNS_UPSTREAM=https://1.1.1.1/dns-query,https://1.0.0.1/dns-query,https://9.9.9.9/dns-query,https://149.112.112.9/dns-query"
+      - "TUNNEL_DNS_PORT=5053"
+      - "TUNNEL_DNS_ADDRESS=0.0.0.0"
+    networks:
+      pihole_internal:
+        ipv4_address: 172.70.9.2
+    security_opt:
+      - no-new-privileges:true
+
+  pihole:
+    container_name: pihole
+    image: pihole/pihole:latest
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+    #  - "67:67/udp" # DHCP
+      - "500:80/tcp" # Map host port 500 to container port 80 for emergency access if needed
+    networks:
+      pihole_internal:
+        ipv4_address: 172.70.9.3
+      proxy: # Add to proxy network so Traefik can reach it
+    environment:
+      TZ: 'Europe/Paris'
+      FTLCONF_webserver_api_password: '<DEFINE_PIHOLE_PASSWORD_HERE>' # Consider using secrets or .env file
+      FTLCONF_dns_listeningMode: 'all'
+      FTLCONF_dns_upstreams: '172.70.9.2#5053'
+      # Add VIRTUAL_HOST and WEBPASSWORD if needed for Pi-hole itself, though password is set above
+    volumes:
+      - '/home/<YOUR_LINUX_USERNAME>/docker/pihole/:/etc/pihole/'
+      - '/home/<YOUR_LINUX_USERNAME>/docker/pihole/etc-dnsmasq.d/:/etc/dnsmasq.d/'
+    restart: unless-stopped
+    depends_on:
+      - cloudflared
+    labels:
+      - "traefik.enable=true"
+
+      # HTTP router (for redirect)
+      - "traefik.http.routers.pihole.entrypoints=http"
+      - "traefik.http.routers.pihole.rule=Host(`pihole.<DOMAINE_NAME>`)"
+      - "traefik.http.middlewares.pihole-https-redirect.redirectscheme.scheme=https" # Define redirect middleware via label
+      - "traefik.http.routers.pihole.middlewares=pihole-https-redirect" # Apply redirect
+
+      # HTTPS router (secure, local access only)
+      - "traefik.http.routers.pihole-secure.entrypoints=https"
+      - "traefik.http.routers.pihole-secure.rule=Host(`pihole.<DOMAINE_NAME>`)"
+      # Apply whitelist and headers for local access
+      - "traefik.http.routers.pihole-secure.middlewares=default-whitelist@file,default-headers@file"
+      - "traefik.http.routers.pihole-secure.tls=true" # Enable TLS
+      - "traefik.http.routers.pihole-secure.tls.certresolver=cloudflare" # Use cloudflare resolver for cert
+      - "traefik.http.routers.pihole-secure.service=pihole"
+      # Service points to Pi-hole container's web interface port
+      - "traefik.http.services.pihole.loadbalancer.server.port=80" # Pi-hole web UI is on port 80
+      - "traefik.docker.network=proxy" # Ensure Traefik uses the correct network
+
+networks:
+  pihole_internal:
+     ipam:
+       config:
+         - subnet: 172.70.9.0/29
+     name: pihole_internal
+  proxy:
+    external: true # Assumes 'proxy' network is created manually or by another compose file

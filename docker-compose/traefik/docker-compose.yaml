@@ -1,0 +1,60 @@
+secrets:
+  cf-token:
+    file: ./cf-token
+  crowdsec-lapi-key:
+    file: /home/<YOUR_LINUX_USERNAME>/docker/traefik/crowdsec-lapi-key
+
+services:
+  traefik:
+    image: traefik:latest # or traefik:v3.3 to pin a version
+    container_name: traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    secrets:
+      - cf-token
+      - crowdsec-lapi-key
+    env_file:
+      - .env # For dashboard credentials
+    networks:
+       proxy:
+    ports:
+      - 80:80
+      - 443:443
+      # - 8080:8080 # Expose dashboard port if needed (but access via domain is better)
+    environment:
+      # Use env var for credentials (recommended)
+      - TRAEFIK_DASHBOARD_CREDENTIALS=${TRAEFIK_DASHBOARD_CREDENTIALS}
+      # Env var used by ACME DNS Challenge via secrets file
+      - CF_DNS_API_TOKEN_FILE=/run/secrets/cf-token
+      # Other env vars if needed by providers/plugins
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /home/<YOUR_LINUX_USERNAME>/docker/traefik/traefik.yaml:/traefik.yaml:ro # Static config
+      - /home/<YOUR_LINUX_USERNAME>/docker/traefik/acme.json:/acme.json # ACME storage
+      - /home/<YOUR_LINUX_USERNAME>/docker/traefik/config.yaml:/config.yaml:ro # Dynamic config (read-only good practice)
+      - /home/<YOUR_LINUX_USERNAME>/docker/traefik/logs:/var/log/traefik # Logs volume
+    labels:
+      # Enable Traefik to manage itself (for dashboard)
+      - "traefik.enable=true"
+
+      # HTTP router for dashboard redirect
+      - "traefik.http.routers.traefik.entrypoints=http"
+      - "traefik.http.routers.traefik.rule=Host(`traefik-docker.<DOMAINE_NAME>`)"
+      - "traefik.http.middlewares.traefik-https-redirect.redirectscheme.scheme=https" # Define redirect middleware via label
+      - "traefik.http.routers.traefik.middlewares=traefik-https-redirect" # Apply redirect
+
+      # HTTPS router for dashboard
+      - "traefik.http.routers.traefik-secure.entrypoints=https"
+      - "traefik.http.routers.traefik-secure.rule=Host(`traefik-docker.<DOMAINE_NAME>`)"
+      - "traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_DASHBOARD_CREDENTIALS}" # Define auth middleware via label
+      # Apply auth AND the whitelist from config.yaml for local access only
+      - "traefik.http.routers.traefik-secure.middlewares=traefik-auth,default-whitelist@file"
+      - "traefik.http.routers.traefik-secure.tls=true" # Enable TLS
+      - "traefik.http.routers.traefik-secure.tls.certresolver=cloudflare" # Use cloudflare resolver for cert
+      - "traefik.http.routers.traefik-secure.service=api@internal" # Use internal API service
+
+networks:
+  proxy:
+    external: true # Assumes 'proxy' network is created manually or by another compose file

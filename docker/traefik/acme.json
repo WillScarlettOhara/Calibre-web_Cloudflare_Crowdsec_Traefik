@@ -1,0 +1,32 @@
+THIS FILE SHOULD LOOK LIKE THIS AFTER BEING WRITTEN THE FIRST TIME YOU DOCKER COMPOSE TRAEFIK SO ERASE THE CONTENT OF THIS FILE AND DO "chmod 600 acme.json" ON IT.
+{
+  "cloudflare": {
+    "Account": {
+      "Email": "<YOUR_CLOUDFLARE_EMAIL",
+      "Registration": {
+        "body": {
+          "status": "valid",
+          "contact": [
+            "mailto:<YOUR_CLOUDFLARE_EMAIL"
+          ]
+        },
+        "uri": "https://acme-v02.api.letsencrypt.org/acme/acct/2364292927"
+      },
+      "PrivateKey": "<SOME_PRIVATE_KEY>",
+      "KeyType": "4096"
+    },
+    "Certificates": [
+      {
+        "domain": {
+          "main": "<DOMAIN_NAME>",
+          "sans": [
+            "*.<DOMAIN_NAME>"
+          ]
+        },
+        "certificate": "<CERTIFICATE>",
+        "key": "<SOME_KEY>",
+        "Store": "default"
+      }
+    ]
+  }
+}

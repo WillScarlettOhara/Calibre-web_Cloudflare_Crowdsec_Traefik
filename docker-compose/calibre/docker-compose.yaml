@@ -1,0 +1,40 @@
+services:
+  calibre-web:
+    image: lscr.io/linuxserver/calibre-web:latest
+    container_name: calibre-web
+    volumes:
+      - /home/<YOUR_LINUX_USERNAME>/docker/calibre/config:/config
+      - /data:/data # where the library will be
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Paris
+    labels:
+      - "traefik.enable=true"
+
+      # HTTP Router (for redirect)
+      - "traefik.http.routers.calibre-web.entrypoints=http"
+      - "traefik.http.routers.calibre-web.rule=Host(`calibre.<DOMAINE_NAME>`)"
+      - "traefik.http.middlewares.calibre-web-https-redirect.redirectscheme.scheme=https" # Define redirect middleware via label
+      - "traefik.http.routers.calibre-web.middlewares=calibre-web-https-redirect" # Apply redirect
+
+      # HTTPS Router (secure, public facing)
+      - "traefik.http.routers.calibre-web-secure.entrypoints=https"
+      - "traefik.http.routers.calibre-web-secure.rule=Host(`calibre.<DOMAINE_NAME>`)"
+      # Apply necessary middlewares for public service behind Cloudflare
+      - "traefik.http.routers.calibre-web-secure.middlewares=cloudflarewarp@file,crowdsec-bouncer@file,default-headers@file"
+      - "traefik.http.routers.calibre-web-secure.tls=true" # Enable TLS
+      - "traefik.http.routers.calibre-web-secure.tls.certresolver=cloudflare" # Use cloudflare resolver
+      - "traefik.http.routers.calibre-web-secure.service=calibre-web"
+      - "traefik.http.services.calibre-web.loadbalancer.server.port=8083" # Calibre-web internal port
+      - "traefik.docker.network=proxy" # Ensure Traefik uses the correct network
+
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true

@@ -1,0 +1,82 @@
+http:
+  routers:
+    proxmox:
+      entryPoints:
+        - "https"
+      rule: "Host(`proxmox.<DOMAIN_NAME>`)"
+      middlewares:
+        # Apply local access restriction and headers
+        - default-whitelist@file
+        - default-headers@file
+      tls: {} # Assuming Proxmox has its own valid cert or insecureSkipVerify handles it
+      service: proxmox
+
+    portainer:
+      entryPoints:
+        - "https"
+      rule: "Host(`portainer.<DOMAIN_NAME>`)"
+      middlewares:
+        # Apply local access restriction and headers
+        - default-whitelist@file
+        - default-headers@file
+      tls:
+        certResolver: cloudflare # Specify your cert resolver
+      service: portainer # Link to the service definition below
+
+  services:
+    # --- Proxmox ---
+    proxmox:
+      loadBalancer:
+        servers:
+          - url: "https://192.168.1.99:8006" # Replace with your Proxmox server IP
+        passHostHeader: true
+
+    portainer:
+      loadBalancer:
+        servers:
+          - url: "https://192.168.1.100:9443" # Replace with your Portainer server IP
+
+  middlewares:
+    # --- Cloudflare IP Handling ---
+    cloudflarewarp:
+      plugin:
+        cloudflarewarp:
+          disableDefault: false # Use Cloudflare's IP list automatically
+
+    # --- CrowdSec Bouncer ---
+    crowdsec-bouncer:
+      plugin:
+        crowdsec-bouncer:
+          crowdsecLapiKeyFile: /run/secrets/crowdsec-lapi-key
+          # Hostname and port for the CrowdSec LAPI
+          crowdsecLapiHost: crowdsec:8080
+          # Recommended mode
+          crowdsecMode: stream
+          # Check forwarded IP (important when behind proxies/plugins)
+          checkForwardedClientIp: true
+
+    # --- Standard Middlewares ---
+    https-redirectscheme:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+    default-headers:
+      headers:
+        frameDeny: true
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 15552000
+        customFrameOptionsValue: SAMEORIGIN
+        customRequestHeaders:
+          # Plugin might handle this, but keeping doesn't hurt
+          X-Forwarded-Proto: https
+
+    # --- Security Middlewares ---
+    default-whitelist:
+      ipAllowList:
+        sourceRange:
+        - "192.168.1.0/24" # Replace with your local network range. Mine is from 192.168.1.0 to 192.168.1.255
